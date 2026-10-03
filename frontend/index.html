@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>IntelliCompile — Logic-Focused Code Execution</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel-alt: #2d2d30;
+    --border: #3c3c3c;
+    --text: #d4d4d4;
+    --text-dim: #9a9a9a;
+    --accent: #4f9cff;
+    --warn: #e5c07b;
+    --warn-bg: #3a3220;
+    --ok: #6ec46e;
+    --err: #f37272;
+    --err-bg: #3a2323;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header .brand { display: flex; align-items: baseline; gap: 10px; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .tagline { font-size: 12px; color: var(--text-dim); }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .status .dot.busy { background: var(--warn); }
+  .status .dot.error { background: var(--err); }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 8px 18px;
+    background: var(--panel-alt); border-bottom: 1px solid var(--border);
+  }
+  .toolbar label { font-size: 13px; color: var(--text-dim); margin-right: 4px; }
+  select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 4px; font-size: 13px;
+  }
+  .spacer { flex: 1; }
+  button {
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    padding: 6px 14px; border-radius: 4px; font-size: 13px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0a1a2e; font-weight: 600; }
+  button.subtle { background: transparent; }
+
+  .main { flex: 1; display: flex; min-height: 0; }
+  .editor-col { flex: 1.4; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); }
+  .editor-wrap { flex: 1; min-height: 0; }
+  .side-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  .panel { border-bottom: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+  .panel-header {
+    padding: 8px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--text-dim); background: var(--panel-alt); text-transform: uppercase;
+  }
+  .panel-body { padding: 10px 14px; overflow-y: auto; font-size: 13px; }
+  .analysis-panel { flex: 1.1; }
+  .output-panel { flex: 1; }
+
+  .empty { color: var(--text-dim); font-style: italic; }
+
+  .issue {
+    background: var(--warn-bg); border: 1px solid #5a4a20; border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 10px;
+  }
+  .issue .head { color: var(--warn); font-weight: 700; margin-bottom: 4px; }
+  .issue .msg { margin-bottom: 8px; }
+  .issue pre {
+    background: #1a1a1a; padding: 6px 8px; border-radius: 4px; overflow-x: auto;
+    font-size: 12.5px; margin: 0 0 8px 0;
+  }
+  .issue .unfixable { color: var(--text-dim); font-style: italic; }
+
+  .success-banner {
+    background: #1f3a24; border: 1px solid #2f5a37; color: var(--ok);
+    padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-size: 13px;
+  }
+
+  pre.output {
+    background: #141414; border-radius: 6px; padding: 10px 12px;
+    white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 13px;
+  }
+  pre.output.err { color: var(--err); }
+  pre.output.ok { color: var(--text); }
+
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="padding:24px;font-family:sans-serif;color:#9a9a9a;">Loading IntelliCompile…</div>
+</div>
+<script>
+  // If anything below fails to load or throws before React mounts, show
+  // a visible message instead of a silent blank page.
+  window.addEventListener("error", function (e) {
+    var root = document.getElementById("root");
+    if (root && !root.dataset.mounted) {
+      root.innerHTML =
+        '<div style="padding:24px;font-family:sans-serif;color:#f37272;">' +
+        '<h2>IntelliCompile failed to load</h2>' +
+        '<p>' + (e && e.message ? e.message : "Unknown error") + '</p>' +
+        '<p style="color:#9a9a9a;font-size:13px;">Check the browser console (F12) for details, ' +
+        'and confirm the backend served <code>/vendor/...</code> files successfully (Network tab).</p>' +
+        '</div>';
+    }
+  });
+</script>
+
+<!--
+  React 18 + ReactDOM + Babel standalone + Monaco Editor are served
+  locally from ./vendor (no CDN / internet access required). This avoids
+  blank-page failures on networks that block unpkg.com / cdnjs.cloudflare.com
+  (common on corporate or campus Wi-Fi and behind some antivirus/firewall
+  software).
+-->
+<script src="vendor/react/react.production.min.js"></script>
+<script src="vendor/react/react-dom.production.min.js"></script>
+<script src="vendor/babel/babel.min.js"></script>
+<script src="vendor/monaco/vs/loader.js"></script>
+
+<script type="text/plain" id="app-source">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const SAMPLES = {
+  java:
+`public class Main {
+    public static void main(String[] args) {
+        int a = 10
+        int b = 20;
+        System.out.println(a + b);
+    }
+}`,
+  cpp:
+`#include <iostream>
+using namespace std;
+
+int main() {
+    int a = 10
+    cout << a << endl;
+    return 0;
+}`
+};
+
+const API_BASE = ""; // same-origin: backend serves this file too
+
+async function api(path, body) {
+  const res = await fetch(API_BASE + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+function ERROR_LABEL(type) {
+  switch (type) {
+    case "MISSING_SEMICOLON": return "Missing semicolon";
+    case "MISSING_CLOSING_PAREN": return "Missing closing parenthesis";
+    case "MISSING_CLOSING_BRACE": return "Missing closing brace";
+    case "MISSING_CLOSING_SQUARE": return "Missing closing bracket";
+    case "UNMATCHED_CLOSING_BRACKET": return "Unexpected closing bracket";
+    default: return type;
+  }
+}
+
+function Issue({ issue, onApply, canApply }) {
+  const fixable = !!(issue.autoFixable && issue.suggestion) || !!issue.appendAtEnd;
+  return (
+    <div className="issue">
+      <div className="head">⚠ Line {issue.line} — {ERROR_LABEL(issue.type)}</div>
+      <div className="msg">{issue.message}</div>
+      {issue.suggestion && (
+        <React.Fragment>
+          <div style={{fontSize: 12, color: "var(--text-dim)", marginBottom: 4}}>Suggested correction:</div>
+          <pre><code>{issue.suggestion}</code></pre>
+        </React.Fragment>
+      )}
+      {issue.appendAtEnd && !issue.suggestion && (
+        <div style={{fontSize: 12, color: "var(--text-dim)", marginBottom: 8}}>
+          Suggested: append <code>{issue.appendAtEnd}</code> at the end of the file.
+        </div>
+      )}
+      {fixable ? (
+        <button className="primary" disabled={!canApply} onClick={onApply}>Apply Fix</button>
+      ) : (
+        <div className="unfixable">The system could not safely determine an automatic correction. Please review this line manually.</div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [language, setLanguage] = useState("java");
+  const [code, setCode] = useState(SAMPLES.java);
+  const [errors, setErrors] = useState([]);
+  const [output, setOutput] = useState(null); // { success, stdout, stderr, stage }
+  const [status, setStatus] = useState("ready"); // ready | busy | error
+  const [wasAutoCorrected, setWasAutoCorrected] = useState(false);
+
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const containerRef = useRef(null);
+
+  // Load Monaco once.
+  useEffect(() => {
+    window.require.config({ paths: { vs: "vendor/monaco/vs" } });
+    window.require(["vs/editor/editor.main"], () => {
+      const editor = monaco.editor.create(containerRef.current, {
+        value: code,
+        language: language === "java" ? "java" : "cpp",
+        theme: "vs-dark",
+        automaticLayout: true,
+        fontSize: 14,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+      });
+      editor.onDidChangeModelContent(() => setCode(editor.getValue()));
+      editorRef.current = editor;
+      monacoRef.current = monaco;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setEditorValue = useCallback((val, lang) => {
+    if (editorRef.current) {
+      editorRef.current.setValue(val);
+      if (lang && monacoRef.current) {
+        monacoRef.current.editor.setModelLanguage(
+          editorRef.current.getModel(),
+          lang === "java" ? "java" : "cpp"
+        );
+      }
+    }
+  }, []);
+
+  const handleLanguageChange = (e) => {
+    const lang = e.target.value;
+    setLanguage(lang);
+    setErrors([]);
+    setOutput(null);
+    setEditorValue(SAMPLES[lang], lang);
+    setCode(SAMPLES[lang]);
+  };
+
+  const handleReset = () => {
+    setEditorValue(SAMPLES[language], language);
+    setCode(SAMPLES[language]);
+    setErrors([]);
+    setOutput(null);
+  };
+
+  const currentCode = () => (editorRef.current ? editorRef.current.getValue() : code);
+
+  const handleAnalyze = async () => {
+    setStatus("busy");
+    try {
+      const res = await api("/api/analyze", { language, code: currentCode() });
+      setErrors(res.errors || []);
+      setOutput(null);
+      setStatus("ready");
+    } catch (e) {
+      setStatus("error");
+    }
+  };
+
+  const handleApplyFix = async () => {
+    setStatus("busy");
+    try {
+      const res = await api("/api/fix", { language, code: currentCode() });
+      setEditorValue(res.correctedCode, language);
+      setCode(res.correctedCode);
+      const reAnalysis = await api("/api/analyze", { language, code: res.correctedCode });
+      setErrors(reAnalysis.errors || []);
+      setStatus("ready");
+    } catch (e) {
+      setStatus("error");
+    }
+  };
+
+  const handleRun = async () => {
+    setStatus("busy");
+    setOutput(null);
+    try {
+      const res = await api("/api/run", { language, code: currentCode() });
+      setErrors(res.analysis || []);
+      setWasAutoCorrected(!!res.wasAutoCorrected);
+      if (res.wasAutoCorrected && res.correctedCode) {
+        setEditorValue(res.correctedCode, language);
+        setCode(res.correctedCode);
+      }
+      setOutput(res);
+      setStatus(res.success ? "ready" : "error");
+    } catch (e) {
+      setStatus("error");
+    }
+  };
+
+  const fixableErrors = errors.filter(e => (e.autoFixable && e.suggestion) || e.appendAtEnd);
+
+  return (
+    <div className="app">
+      <header>
+        <div className="brand">
+          <h1>IntelliCompile</h1>
+          <span className="tagline">Logic-Focused Code Execution</span>
+        </div>
+        <div className="status">
+          <span className={`dot ${status === "busy" ? "busy" : status === "error" ? "error" : ""}`}></span>
+          {status === "busy" ? "Working…" : status === "error" ? "Issue" : "Ready"}
+        </div>
+      </header>
+
+      <div className="toolbar">
+        <label htmlFor="lang">Language:</label>
+        <select id="lang" value={language} onChange={handleLanguageChange}>
+          <option value="java">Java</option>
+          <option value="cpp">C++</option>
+        </select>
+        <div className="spacer" />
+        <button className="subtle" onClick={handleReset}>Reset</button>
+        <button onClick={handleAnalyze}>Analyze</button>
+        {fixableErrors.length > 0 && (
+          <button onClick={handleApplyFix}>Fix Error{fixableErrors.length > 1 ? "s" : ""}</button>
+        )}
+        <button className="primary" onClick={handleRun}>Run</button>
+      </div>
+
+      <div className="main">
+        <div className="editor-col">
+          <div className="editor-wrap" ref={containerRef}></div>
+        </div>
+
+        <div className="side-col">
+          <div className="panel analysis-panel">
+            <div className="panel-header">Syntax Analysis</div>
+            <div className="panel-body">
+              {errors.length === 0 && <div className="empty">No syntax issues detected. Click Analyze or Run.</div>}
+              {errors.map((err, i) => (
+                <Issue
+                  key={i}
+                  issue={err}
+                  canApply={true}
+                  onApply={handleApplyFix}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="panel output-panel">
+            <div className="panel-header">Output</div>
+            <div className="panel-body">
+              {!output && <div className="empty">Run the program to see output here.</div>}
+              {output && (
+                <React.Fragment>
+                  {wasAutoCorrected && (
+                    <div className="success-banner">
+                      ✓ Syntax issue resolved automatically — the program was corrected before compiling.
+                    </div>
+                  )}
+                  {output.stage && (
+                    <div style={{fontSize: 12, color: "var(--text-dim)", marginBottom: 8}}>
+                      Stage: {output.stage} · Status: {output.success ? "Success" : "Failed"}
+                      {typeof output.exitCode === "number" ? ` · Exit code: ${output.exitCode}` : ""}
+                    </div>
+                  )}
+                  {output.stdout && <pre className="output ok">{output.stdout}</pre>}
+                  {output.stderr && <pre className="output err">{output.stderr}</pre>}
+                  {!output.stdout && !output.stderr && (
+                    <div className="empty">Program produced no output.</div>
+                  )}
+                </React.Fragment>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const rootEl = document.getElementById("root");
+rootEl.dataset.mounted = "true";
+ReactDOM.createRoot(rootEl).render(<App />);
+</script>
+
+<script>
+  // Manually transform the JSX source above with the CLASSIC runtime
+  // (React.createElement calls) instead of Babel's default "automatic"
+  // runtime, which emits `import ... from "react/jsx-runtime"` — an ES
+  // module import that plain global-script React can't satisfy and which
+  // fails silently in some browsers, producing a blank page. Doing the
+  // transform explicitly here avoids that entirely.
+  (function () {
+    var source = document.getElementById("app-source").textContent;
+    var transformed = Babel.transform(source, {
+      presets: [["react", { runtime: "classic" }]],
+      filename: "app.jsx",
+    }).code;
+    var script = document.createElement("script");
+    script.text = transformed;
+    document.body.appendChild(script);
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+services:
+  intellicompile-backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    ports:
+      - "4000:4000"
+    # --- Basic sandboxing for the code the API compiles/executes ---
+    # These limits apply to the whole backend container. Because
+    # javac/java/g++ run as subprocesses of this same container (see
+    # backend/executors/*.js), they inherit these limits too.
+    mem_limit: "512m"
+    cpus: "1.0"
+    pids_limit: 128
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: false # javac/g++ need to write compiled output to /tmp
+    tmpfs:
+      - /tmp:size=64m
+    # NOTE: for stricter isolation (no outbound network access for
+    # submitted programs at all), run this service on a Docker network
+    # created with `--internal` and reach it through a separate reverse
+    # proxy container. Left as a documented follow-up (see README
+    # "Limitations") rather than enabled by default, since an internal
+    # network cannot itself publish the "4000:4000" port used below.

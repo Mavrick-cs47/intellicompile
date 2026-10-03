@@ -1,0 +1,27 @@
+# IntelliCompile backend image
+# Includes Node.js (server), OpenJDK (javac/java), and g++ (C++), so the
+# container can compile and run the code submitted through the API.
+FROM node:20-bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-17-jdk-headless \
+        g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/backend
+COPY backend/package.json ./
+RUN npm install --omit=dev --no-audit --no-fund
+
+COPY backend/ ./
+COPY frontend/ ../frontend/
+
+# Run as a non-root user so a runaway submitted program has minimal
+# privileges on the host filesystem.
+RUN useradd -m -u 1000 runner && chown -R runner:runner /app
+USER runner
+
+ENV PORT=4000
+EXPOSE 4000
+
+CMD ["node", "server.js"]
